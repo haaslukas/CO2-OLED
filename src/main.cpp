@@ -1,7 +1,8 @@
 #include <Arduino.h>
 
-//#include <WiFi.h>
-//#include <WiFiClientSecure.h>
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <PubSubClient.h>
 
 #include <Wire.h>
 #include <SPI.h>
@@ -25,6 +26,22 @@
 #define BUTTON_1            35
 #define BUTTON_2            0
 */
+
+#include <Credentials.h>
+
+
+/************************* WiFi Access Point *********************************/
+
+//#define WLAN_SSID       // create Credentials.h File in lib Folder
+//#define WLAN_PASS       
+
+/************************* MQTT Setup *********************************/
+
+#define MQTT_SERVER     "192.168.1.211"
+#define MQTT_PORT       1883
+//#define MQTT_USER       
+//#define MQTT_PW       
+
 
 #define I2C_SDA             21    
 #define I2C_SCL             22
@@ -55,6 +72,7 @@ void setup() {
   if (airSensor.begin(Wire) == false) //Pass the Wire port to the .begin() function
   {
     Serial.println("Air sensor not detected. Please check wiring. Freezing...");
+    //tft.drawString("SCD30 Sensor nicht erkannt", 20, 20, 4);
     while (1);
   }
 
