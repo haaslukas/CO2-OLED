@@ -11,10 +11,10 @@ For ppm values above 1500, the display shows a red status (max. interiour refere
 
 ###### Credentials
 The ESP32 connects to your local Wifi and publishes the values to a MQTT broker (broker IP can be set in the main.cpp). WiFi and MQTT credentials are defined in the Credentials.h library, which you won't find in the repo (see .gitignore). Just add the Credentials folder and the Credentials.h file to your lib folder and add the following lines:
-
+```
 #define WLAN_SSID       "your-ssid"
 #define WLAN_PASS       "your-password"
 #define MQTT_USER       "your-username"
 #define MQTT_PW         "your-pw"
-
+```
 Happy windows opening ;-)
