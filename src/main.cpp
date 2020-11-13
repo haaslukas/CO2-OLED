@@ -245,10 +245,10 @@ void loop() {
       Serial.println();
     #endif
 
-    if (co2_value < 700) {
+    if (co2_value < 1000) {
       tft.fillScreen(TFT_GREEN);
        
-    } else if (co2_value < 1000) {
+    } else if (co2_value < 1500) {
       tft.fillScreen(TFT_ORANGE);
        
     } else {
