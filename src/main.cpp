@@ -3,12 +3,15 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
+#include <ArduinoJson.h>
 
 #include <Wire.h>
 #include <SPI.h>
 
 #include <TFT_eSPI.h> // Hardware-specific library
 #include <SparkFun_SCD30_Arduino_Library.h>
+
+#define my_Serial
 
 //#include "Free_Fonts.h" // Include the header file attached to this sketch
 
@@ -32,15 +35,27 @@
 
 /************************* WiFi Access Point *********************************/
 
-//#define WLAN_SSID       // create Credentials.h File in lib Folder
-//#define WLAN_PASS       
+//#define WLAN_SSID       // create Credentials.h File in lib Folder Credentials
+//#define WLAN_PASS       // create Credentials.h File in lib Folder Credentials
 
 /************************* MQTT Setup *********************************/
 
-#define MQTT_SERVER     "192.168.1.211"
+#define MQTT_SERVER     "192.168.1.20"
 #define MQTT_PORT       1883
-//#define MQTT_USER       
-//#define MQTT_PW       
+//#define MQTT_USER     // create Credentials.h File in lib Folder Credentials
+//#define MQTT_PW       // create Credentials.h File in lib Folder Credentials
+
+#define HOSTNAME        "co2-oled-demo"
+
+#define SUB_TOPIC       "co2-sensor/status"             // messages: request
+#define PUB_TOPIC       "co2-sensor/status/response"    // messages: online
+
+#define PUB_TOPIC_CO2   "co2-sensor/values"    // message: {}
+
+#define WILL_TOPIC      "co2-sensor/status/lastwill"
+#define WILL_QOS        0
+#define WILL_RETAIN     0
+#define WILL_MESSAGE    "connection lost"
 
 
 #define I2C_SDA             21    
@@ -51,8 +66,106 @@ TFT_eSPI tft = TFT_eSPI(); // Invoke custom library
 
 SCD30 airSensor;
 
+/************ Global State (you don't need to change this!) ******************/
+// Create an ESP WiFiClient class to connect to the MQTT server.
+WiFiClient espClient;
+// or... use WiFiFlientSecure for SSL
+//WiFiClientSecure client;
+
+// Setup the MQTT client class by passing in the WiFi client and MQTT server and login details.
+PubSubClient client(espClient);
+
+
+// Bug workaround for Arduino 1.6.6, it seems to need a function declaration
+// for some reason (only affects ESP8266, likely an arduino-builder bug).
+void MQTT_connect();
+
+void reconnect() {
+  // Loop until we're reconnected
+  while (!client.connected()) {
+    #ifdef my_Serial  
+      Serial.print("Attempting MQTT connection...");
+      
+    #endif
+
+    // Create a random client ID
+    String clientId = HOSTNAME + '-';
+    clientId += String(random(0xffff), HEX);
+    // Attempt to connect
+    if (client.connect(clientId.c_str(), MQTT_USER, MQTT_PW, WILL_TOPIC, WILL_QOS, WILL_RETAIN, WILL_MESSAGE)) {
+      #ifdef my_Serial  
+        Serial.println("connected");
+      #endif
+      // Once connected, publish an announcement...
+      client.publish(PUB_TOPIC, "online");
+      //client.publish(PUB_TOPIC, String(ESP.getChipId()).c_str());
+      client.subscribe(SUB_TOPIC);
+    } else {
+      #ifdef my_Serial  
+        Serial.print("failed, rc=");
+        Serial.print(client.state());
+        Serial.println(" try again in 5 seconds");
+      #endif
+      // Wait 5 seconds before retrying
+      delay(5000);
+    }
+  }
+}
+
+void callback(char* topic, byte* payload, unsigned int length) {
+  #ifdef my_Serial  
+    Serial.print("Message arrived [");
+    Serial.print(topic);
+    Serial.print("] ");
+  #endif
+  String message = "";
+  for (int i=0;i<length;i++) {
+    message += (char)payload[i];
+  }
+  #ifdef my_Serial  
+    Serial.print(message);
+    Serial.println();
+  #endif
+
+  if (strcmp(topic, SUB_TOPIC)==0){
+    if (message == "request") {
+      #ifdef my_Serial  
+        Serial.println("requesting state");
+      #endif
+      client.publish(PUB_TOPIC, "online");
+    }
+  }
+}
+
 void setup() {
   Serial.begin(115200);
+
+   // Connect to WiFi access point.
+  #ifdef my_Serial
+    Serial.println(); Serial.println();
+    Serial.print("Connecting to ");
+    Serial.println(WLAN_SSID);
+  #endif
+
+  WiFi.begin(WLAN_SSID, WLAN_PASS);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    #ifdef my_Serial
+      Serial.print(".");
+    #endif
+  }
+
+  #ifdef my_Serial
+    Serial.println();
+    Serial.println("WiFi connected");
+    Serial.println("IP address: "); Serial.println(WiFi.localIP());
+  #endif
+  
+  WiFi.mode(WIFI_STA);
+
+  // set MQTT Server:
+  client.setServer(MQTT_SERVER, MQTT_PORT);
+  client.setCallback(callback);   
 
   /*
     ADC_EN is the ADC detection enable port
@@ -62,9 +175,13 @@ void setup() {
   //pinMode(ADC_EN, OUTPUT);
   //digitalWrite(ADC_EN, HIGH);
 
+  #ifdef my_Serial
+    Serial.println("Init TFT");
+  #endif
+
   tft.init();
   tft.setRotation(1);
-  tft.fillScreen(TFT_BLACK);
+  tft.fillScreen(TFT_VIOLET);
 
   
   Wire.begin(I2C_SDA, I2C_SCL); //Start the wire hardware that may be supported by your platform
@@ -79,6 +196,18 @@ void setup() {
 }
 
 void loop() {
+
+  // Ensure the WiFI connection is alive
+  if (WiFi.status() != WL_CONNECTED) { WiFi.begin(WLAN_SSID, WLAN_PASS); }
+  
+  
+  // Ensure the connection to the MQTT server is alive (this will make the first
+  // connection and automatically reconnect when disconnected).  See the MQTT_connect
+  // function definition further below.
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();  
   
   if (airSensor.dataAvailable())
   {
@@ -86,16 +215,35 @@ void loop() {
     float temp_value = airSensor.getTemperature();
     float humi_value = airSensor.getHumidity();
 
-    Serial.print("co2(ppm):");
-    Serial.print(co2_value);
+    DynamicJsonDocument JSONdoc(100);
 
-    Serial.print(" temp(C):");
-    Serial.print(temp_value, 1);
+    JSONdoc["co2"] = co2_value;
+    JSONdoc["temp"] = temp_value;
+    JSONdoc["humi"] = humi_value;
 
-    Serial.print(" humidity(%):");
-    Serial.print(humi_value, 1);
+    // Generate the minified JSON and send it to the Serial port.
+    #ifdef my_Serial
+      serializeJson(JSONdoc, Serial);
+      Serial.println();
+    #endif
 
-    Serial.println();
+    // Publish the JSON via MQTT
+    char buffer[256];
+    size_t n = serializeJson(JSONdoc, buffer);
+    client.publish(PUB_TOPIC_CO2, buffer, n);
+
+    #ifdef my_Serial
+      Serial.print("co2(ppm):");
+      Serial.print(co2_value);
+
+      Serial.print(" temp(C):");
+      Serial.print(temp_value, 1);
+
+      Serial.print(" humidity(%):");
+      Serial.print(humi_value, 1);
+
+      Serial.println();
+    #endif
 
     if (co2_value < 700) {
       tft.fillScreen(TFT_GREEN);
